@@ -1,8 +1,9 @@
 # Regional quantization for ALVR 20.14.1
 
-This Windows server fork uses an application's scene data guide video
-quantization. It was developed for the Pedaltopia wireless VR cycling study.
-The application supplies regions separately for each eye while SteamVR runs the scene. ALVR maps those regions
+This Windows server fork uses an application's scene data to guide video
+quantization. It accompanies the [Pedaltopia wireless VR cycling study](../../README.md).
+The application supplies regions separately for each eye while SteamVR runs the
+scene. ALVR maps those regions
 through its fixed-foveation transform, computes block-level delta QPs and sends
 the map to NVIDIA NVENC in HEVC mode. This changes how the encoder distributes
 precision within the stream. The headset client uses the standard ALVR protocol.
@@ -49,7 +50,8 @@ The ALVR driver opens the session-local mapping `Local\GVL.StreamingAttention.v1
 and mutex `Local\GVL.StreamingAttention.v1.Lock`. It accepts a fresh packet from
 the active scene process. Publish from inside that process. The bundled
 [C++ publisher](producer/AttentionWorker.h) projects generic geometry given the
-application's column-major stereo view-projection matrices. It also handles locking, timestamps and the
+application's column-major stereo view-projection matrices. It also handles
+locking, timestamps and the
 asynchronous request fence. Compile `producer/AttentionWorker.cpp` and include
 both `producer` and `alvr/server_openvr/cpp/platform/win32`. The
 [worker bridge test](tests/worker_bridge_tests.cpp) demonstrates submitting a

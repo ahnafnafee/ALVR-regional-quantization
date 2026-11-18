@@ -1,94 +1,35 @@
-## Regional quantization research fork
+# Keeping up with the ride
 
-See [the fork guide](tools/regional-quantization/README.md) for the Windows NVENC extension, build steps and application interface.
+**Code companion for _Keeping up with the ride: Motion-aware compression for wireless VR cycling_.** This fork of ALVR v20.14.1 adds game-informed regional quantization to the Windows NVIDIA NVENC HEVC encoder. A VR application supplies the positions of objects and surfaces in each eye. ALVR transforms those regions into fixed-foveated encoder coordinates and uses them to request finer or coarser quantization by block.
 
-<p align="center"> <img width="500" src="resources/ALVR-Grey.svg"/> </p>
+In the Pedaltopia study, the two encodings shared a 16 Mbps video target. Across 288 matched moving replay frames, regional encoding used 1.51% fewer encoded bits and reduced mean squared color error by 15.20–16.25% in the road, cockpit, and tagged hazard regions across both eyes. The five-rider study evaluated the two encodings under a shared 21 Mbps Wi-Fi traffic cap.
 
-# ALVR - Air Light VR
+## Reproduce the encoder changes
 
-[![badge-discord][]][link-discord] [![badge-matrix][]][link-matrix] [![badge-opencollective][]][link-opencollective]
+The paper points to [`cs692-paper-v1`](https://github.com/ahnafnafee/ALVR-regional-quantization/tree/cs692-paper-v1). Use that tag for a fixed checkout. The `cs692-paper` branch is the maintained entry point.
 
-Stream VR games from your PC to your headset via Wi-Fi.
-This is a fork of [ALVR](https://github.com/polygraphene/ALVR).
+```powershell
+git clone --branch cs692-paper-v1 https://github.com/ahnafnafee/ALVR-regional-quantization.git
+cd ALVR-regional-quantization
+python tools/regional-quantization/build_driver.py --cache C:/Temp/alvr-regional-build
+python tools/regional-quantization/build_tests.py C:/Temp/alvr-regional-tests
+```
 
-### Direct download to the latest version:
-### [Windows Launcher](https://github.com/alvr-org/ALVR/releases/latest/download/alvr_launcher_windows.zip) | [Linux Launcher](https://github.com/alvr-org/ALVR/releases/latest/download/alvr_launcher_linux.tar.gz)
+The driver build requires Windows x64, Python 3.10+, Rust for Windows MSVC, and the Visual Studio x64 C++ tools with the Windows SDK. Run the native tests with ALVR streaming stopped. The synthetic NVENC probe also requires a compatible NVIDIA GPU. [Install the driver, connect a publisher, and run the GPU smoke test](tools/regional-quantization/README.md)
 
-## Compatibility
+| Component | Source |
+| --- | --- |
+| Region packet format | [`AttentionPacket.h`](alvr/server_openvr/cpp/platform/win32/AttentionPacket.h) |
+| Per-eye block map and quantization requests | [`AttentionMap.h`](alvr/server_openvr/cpp/platform/win32/AttentionMap.h) |
+| NVENC HEVC integration | [`VideoEncoderNVENC.cpp`](alvr/server_openvr/cpp/platform/win32/VideoEncoderNVENC.cpp) |
+| Reusable region publisher and synthetic bridge example | [C++ publisher](tools/regional-quantization/producer/AttentionWorker.h) · [Bridge test](tools/regional-quantization/tests/worker_bridge_tests.cpp) |
 
-|          VR Headset          |                                        Support                                         |
-| :--------------------------: | :------------------------------------------------------------------------------------: |
-|       Apple Vision Pro       |    :heavy_check_mark: ([store link](https://apps.apple.com/app/alvr/id6479728026))     |
-|      Quest 1/2/3/3S/Pro      | :heavy_check_mark: ([store link](https://www.meta.com/experiences/7674846229245715) *) |
-|     Pico Neo 3/4/4 Ultra     |                                   :heavy_check_mark:                                   |
-|    Play For Dream YVR 1/2/MR |                                   :heavy_check_mark:                                   |
-| Vive Focus 3/Vision/XR Elite |                                   :heavy_check_mark:                                   |
-|           Lynx R1            |                                   :heavy_check_mark:                                   |
-|     PhoneVR (smartphone)     |     :heavy_check_mark: ** ([repo](https://github.com/PhoneVR-Developers/PhoneVR))      |
-|        Android/Monado        |                                      :warning: **                                      |
-|          Oculus Go           |                 :x: ([old repo](https://github.com/polygraphene/ALVR))                 |
+## Release scope
 
-\* : ALVR for Quest 1 not available through the Meta store.  
-\** : Only works on some smartphones, not enough testing.  
+The public artifact covers the ALVR modifications, reusable C++ hook, and standalone build and test tools. Pedaltopia's game source and assets remain proprietary, and the study recordings remain private. The synthetic tests exercise the regional encoding path with generated inputs. Repeating the rider study requires the original application and study setup. The public source uses the [MIT license](LICENSE). [Upstream ALVR v20.14.1](https://github.com/alvr-org/ALVR/tree/v20.14.1)
 
-|     PC OS      |                                    Support                                    |
-| :------------: | :---------------------------------------------------------------------------: |
-| Windows 10/11  | :heavy_check_mark: ([store link](https://store.steampowered.com/app/3312710)) |
-| Windows XP/7/8 |                                      :x:                                      |
-|     Linux      |                             :heavy_check_mark:***                             |
-|     macOS      |                                      :x:                                      |
+## Cite the study
 
-\*** : Linux support is still in beta. To be able to make audio work or run ALVR at all you may need advanced knowledge of your distro for debugging or building from source.
+Ahnaf An Nafee. 2026. _Keeping up with the ride: Motion-aware compression for wireless VR cycling_. CS 692 final project report, George Mason University.
 
-### Requirements
-
--   A supported standalone VR headset (see compatibility table above)
-
--   SteamVR
-
--   High-end gaming PC
-    -   See OS compatibility table above.
-    -   NVIDIA GPU that supports NVENC (1000 GTX Series or higher) (or with an AMD GPU that supports AMF VCE) with the latest driver.
-    -   Laptops with an onboard (Intel HD, AMD iGPU) and an additional dedicated GPU (NVidia GTX/RTX, AMD HD/R5/R7): you should assign the dedicated GPU or "high performance graphics adapter" to the applications ALVR, SteamVR for best performance and compatibility. (NVidia: Nvidia control panel->3d settings->application settings; AMD: similiar way)
-
--   802.11ac 5Ghz wireless or ethernet wired connection
-    -   It is recommended to use 802.11ac 5Ghz for the headset and ethernet for PC
-    -   You need to connect both the PC and the headset to same router (or use a routed connection as described [here](https://github.com/alvr-org/ALVR/wiki/ALVR-v14-and-Above))
-
-## Install
-
-Follow the installation guide [here](https://github.com/alvr-org/ALVR/wiki/Installation-guide).
-
-## Troubleshooting
-
--   Please check the [Troubleshooting](https://github.com/alvr-org/ALVR/wiki/Troubleshooting) page, and also [Linux Troubleshooting](https://github.com/alvr-org/ALVR/wiki/Linux-Troubleshooting) if applicable.
--   Configuration recommendations and information may be found [here](https://github.com/alvr-org/ALVR/wiki/Information-and-Recommendations)
-
-## Uninstall
-
-Open `ALVR Dashboard.exe`, go to `Installation` tab then press `Remove firewall rules`. Close ALVR window and delete the ALVR folder.
-
-## Build from source
-
-You can follow the guide [here](https://github.com/alvr-org/ALVR/wiki/Building-From-Source).
-
-## License
-
-ALVR is licensed under the [MIT License](LICENSE).
-
-## Privacy policy
-
-ALVR apps do not directly collect any kind of data.
-
-## Donate
-
-If you want to support this project you can make a donation to our [Open Source Collective account](https://opencollective.com/alvr).
-
-You can also donate to the original author of ALVR using Paypal (polygraphene@gmail.com) or with bitcoin (1FCbmFVSjsmpnAj6oLx2EhnzQzzhyxTLEv).
-
-[badge-discord]: https://img.shields.io/discord/720612397580025886?style=for-the-badge&logo=discord&color=5865F2 "Join us on Discord"
-[link-discord]: https://discord.gg/ALVR
-[badge-matrix]: https://img.shields.io/static/v1?label=chat&message=%23alvr&style=for-the-badge&logo=matrix&color=blueviolet "Join us on Matrix"
-[link-matrix]: https://matrix.to/#/#alvr:ckie.dev?via=ckie.dev
-[badge-opencollective]: https://img.shields.io/opencollective/all/alvr?style=for-the-badge&logo=opencollective&color=79a3e6 "Donate"
-[link-opencollective]: https://opencollective.com/alvr
+For the implementation, reference the [`cs692-paper-v1` source snapshot](https://github.com/ahnafnafee/ALVR-regional-quantization/tree/cs692-paper-v1).
