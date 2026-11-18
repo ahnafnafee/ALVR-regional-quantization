@@ -37,6 +37,8 @@ private:
 
     std::shared_ptr<CD3DRender> m_pD3DRender;
 
+    bool m_attentionEnabled = false;
+    float m_attentionNominalMbps = 30;
     int m_codec;
     int m_refreshRate;
     int m_renderWidth;

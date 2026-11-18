@@ -380,7 +380,14 @@ pub fn record_audio_blocking(
 
     if res.is_ok() {
         while matches!(*state.lock(), AudioRecordState::Recording) && is_running() {
-            thread::sleep(Duration::from_millis(500))
+            thread::sleep(Duration::from_millis(500));
+            // Keep the requested PC mute when another application changes endpoint
+            // state after capture starts. Loopback capture still feeds the headset.
+            // This runs on the sleeping audio-control thread, not the audio callback.
+            #[cfg(windows)]
+            if mute && device.is_output {
+                crate::windows::set_mute_windows_device(device, true).ok();
+            }
         }
 
         if let AudioRecordState::Err(e) = &mut *state.lock() {

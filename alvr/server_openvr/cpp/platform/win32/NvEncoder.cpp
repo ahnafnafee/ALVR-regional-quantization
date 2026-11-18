@@ -10,6 +10,8 @@
 */
 
 #include "NvEncoder.h"
+#include "AttentionBridge.h"
+#include "EncoderFrameTelemetry.h"
 
 #ifndef _WIN32
 #include <cstring>
@@ -556,7 +558,16 @@ NVENCSTATUS NvEncoder::DoEncode(NV_ENC_INPUT_PTR inputBuffer, NV_ENC_OUTPUT_PTR 
     picParams.outputBitstream = outputBuffer;
     picParams.completionEvent = GetCompletionEvent(m_iToSend % m_nEncoderBuffer);
     NVENCSTATUS nvStatus = m_nvenc.nvEncEncodePicture(m_hEncoder, &picParams);
+    if (picParams.qpDeltaMap && (nvStatus == NV_ENC_ERR_INVALID_PARAM || nvStatus == NV_ENC_ERR_UNSUPPORTED_PARAM)) {
+        gvl::streaming::alvr::AttentionBridge::Instance().Disable(uint32_t(nvStatus));
+        picParams.qpDeltaMap = nullptr;
+        picParams.qpDeltaMapSize = 0;
+        nvStatus = m_nvenc.nvEncEncodePicture(m_hEncoder, &picParams);
+    }
 
+    gvl::streaming::alvr::EncoderFrameTelemetry::Instance().SubmissionResult(picParams.inputTimeStamp,
+        nvStatus == NV_ENC_SUCCESS || nvStatus == NV_ENC_ERR_NEED_MORE_INPUT,
+        picParams.qpDeltaMap != nullptr, uint32_t(nvStatus));
     return nvStatus; 
 }
 
@@ -592,6 +603,8 @@ void NvEncoder::GetEncodedPacket(std::vector<NV_ENC_OUTPUT_PTR> &vOutputBuffer, 
         lockBitstreamData.outputBitstream = vOutputBuffer[m_iGot % m_nEncoderBuffer];
         lockBitstreamData.doNotWait = false;
         NVENC_API_CALL(m_nvenc.nvEncLockBitstream(m_hEncoder, &lockBitstreamData));
+        gvl::streaming::alvr::EncoderFrameTelemetry::Instance().Complete(lockBitstreamData.outputTimeStamp,
+            lockBitstreamData.bitstreamSizeInBytes, lockBitstreamData.frameAvgQP);
   
         uint8_t *pData = (uint8_t *)lockBitstreamData.bitstreamBufferPtr;
         if (vPacket.size() < i + 1)

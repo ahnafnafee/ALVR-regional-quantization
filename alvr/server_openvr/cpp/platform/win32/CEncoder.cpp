@@ -1,4 +1,5 @@
 #include "CEncoder.h"
+#include "AttentionBridge.h"
 
 CEncoder::CEncoder()
     : m_bExiting(false)
@@ -100,6 +101,8 @@ bool CEncoder::CopyToStaging(
     m_presentationTime = presentationTime;
     m_targetTimestampNs = targetTimestampNs;
     m_FrameRender->Startup();
+
+    gvl::streaming::alvr::AttentionBridge::Instance().Capture(targetTimestampNs, layerCount);
 
     m_FrameRender->RenderFrame(
         pTexture, bounds, poses, layerCount, recentering, message, debugText

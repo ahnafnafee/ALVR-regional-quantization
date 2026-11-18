@@ -350,7 +350,8 @@ pub unsafe extern "C" fn alvr_poll_event(out_event: *mut AlvrEvent, timeout_ns: 
                 ServerCoreEvent::ShutdownPending => {
                     *out_event = AlvrEvent::ShutdownPending;
                 }
-                ServerCoreEvent::GameRenderLatencyFeedback(_)
+                ServerCoreEvent::RegionalQualityFeedback { .. }
+                | ServerCoreEvent::GameRenderLatencyFeedback(_)
                 | ServerCoreEvent::SetOpenvrProperty { .. } => {} // implementation not needed
             }
 

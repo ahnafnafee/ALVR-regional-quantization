@@ -95,6 +95,10 @@ pub enum ServerCoreEvent {
     RequestIDR,
     CaptureFrame,
     GameRenderLatencyFeedback(Duration), // only used for SteamVR
+    RegionalQualityFeedback {
+        timestamp_ns: u64, network_ms: f32, decoder_queue_ms: f32,
+        lost_total: u64, frame_bytes: u64, frame_interval_ms: f32,
+    },
     ShutdownPending,
     RestartPending,
 }

@@ -35,6 +35,28 @@ pub struct BitrateDirectives {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct FrameMeasurement {
+    pub schema: String,
+    pub target_timestamp_ns: u64,
+    pub host_sample_sequence: u64,
+    pub host_receipt_elapsed_ns: u64,
+    pub encoded_bytes: usize,
+    pub present_reports_for_target: u32,
+    pub composed_reports_for_target: u32,
+    pub encoded_reports_for_target: u32,
+    pub client_reports_for_target: u32,
+    pub frame_match_unambiguous: bool,
+    pub server_stage_order_valid: bool,
+    pub client_input_to_submit_ms: f32,
+    pub runtime_vsync_prediction_ms: f32,
+    pub runtime_predicted_display_interval_ms: f32,
+    pub network_residual_was_clamped: bool,
+    pub packets_lost_total: usize,
+    pub physical_motion_to_photon_ms: Option<f32>,
+    pub display_scanout_observed: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct GraphStatistics {
     pub total_pipeline_latency_s: f32,
     pub game_time_s: f32,
@@ -48,6 +70,8 @@ pub struct GraphStatistics {
     pub client_fps: f32,
     pub server_fps: f32,
     pub bitrate_directives: BitrateDirectives,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gvl_frame: Option<FrameMeasurement>,
     pub throughput_bps: f32,
     pub bitrate_bps: f32,
 }

@@ -1,4 +1,8 @@
 #include "VideoEncoderNVENC.h"
+#include "AttentionBridge.h"
+#include "EncoderReferenceCapture.h"
+#include "DynamicReferenceCapture.h"
+#include "EncoderFrameTelemetry.h"
 #include "NvCodecUtils.h"
 
 #include "alvr_server/Logger.h"
@@ -16,6 +20,20 @@ VideoEncoderNVENC::VideoEncoderNVENC(std::shared_ptr<CD3DRender> pD3DRender, int
 VideoEncoderNVENC::~VideoEncoderNVENC() { }
 
 void VideoEncoderNVENC::Initialize() {
+    auto& attention = gvl::streaming::alvr::AttentionBridge::Instance();
+    m_attentionEnabled = attention.Enabled() && m_codec == ALVR_CODEC_HEVC;
+    if (m_attentionEnabled) {
+        auto& s = Settings::Instance();
+        gvl::streaming::alvr::Geometry g;
+        g.width = m_renderWidth; g.height = m_renderHeight; g.block = 32;
+        g.foveated = s.m_enableFoveatedEncoding;
+        if (g.foveated) {
+            g.x = gvl::streaming::alvr::AlignedAxis(float(s.m_renderWidth) / 2, float(s.m_foveationCenterSizeX), float(s.m_foveationCenterShiftX), float(s.m_foveationEdgeRatioX));
+            g.y = gvl::streaming::alvr::AlignedAxis(float(s.m_renderHeight), float(s.m_foveationCenterSizeY), float(s.m_foveationCenterShiftY), float(s.m_foveationEdgeRatioY));
+        }
+        attention.Configure(g);
+        Info("[GVL attention] HEVC regional quality enabled, %dx%d, blocks=32", m_renderWidth, m_renderHeight);
+    }
     //
     // Initialize Encoder
     //
@@ -57,7 +75,16 @@ void VideoEncoderNVENC::Initialize() {
         m_bitrateInMBits * 1'000'000L
     );
     try {
-        m_NvNecoder->CreateEncoder(&initializeParams);
+        try {
+            m_NvNecoder->CreateEncoder(&initializeParams);
+        } catch (NVENCException e) {
+            if (!m_attentionEnabled) throw;
+            Warn("[GVL attention] Unsupported encoder configuration; falling back. Code=%d", e.getErrorCode());
+            m_attentionEnabled = false;
+            attention.Disable(uint32_t(e.getErrorCode()));
+            FillEncodeConfig(initializeParams, m_refreshRate, m_renderWidth, m_renderHeight, m_bitrateInMBits * 1'000'000L);
+            m_NvNecoder->CreateEncoder(&initializeParams);
+        }
     } catch (NVENCException e) {
         if (e.getErrorCode() == NV_ENC_ERR_INVALID_PARAM) {
             throw MakeException(
@@ -85,6 +112,7 @@ void VideoEncoderNVENC::Shutdown() {
         m_NvNecoder.reset();
     }
 
+    gvl::streaming::alvr::EncoderFrameTelemetry::Instance().Finish();
     Debug("CNvEncoder::Shutdown\n");
 
     if (fpOut) {
@@ -97,13 +125,20 @@ void VideoEncoderNVENC::Transmit(
 ) {
     auto params = GetDynamicEncoderParams();
     if (params.updated) {
-        m_bitrateInMBits = params.bitrate_bps / 1'000'000;
+        m_attentionNominalMbps = float(params.bitrate_bps) / 1'000'000;
+        m_refreshRate = int(params.framerate);
+    }
+    const int regionalMbps = int(m_attentionEnabled
+        ? gvl::streaming::alvr::AttentionBridge::Instance().UpdateQuality(m_attentionNominalMbps)
+        : m_attentionNominalMbps);
+    if (params.updated || regionalMbps != m_bitrateInMBits) {
+        m_bitrateInMBits = regionalMbps;
         NV_ENC_INITIALIZE_PARAMS initializeParams = { NV_ENC_INITIALIZE_PARAMS_VER };
         NV_ENC_CONFIG encodeConfig = { NV_ENC_CONFIG_VER };
         initializeParams.encodeConfig = &encodeConfig;
         FillEncodeConfig(
             initializeParams,
-            params.framerate,
+            m_refreshRate,
             m_renderWidth,
             m_renderHeight,
             m_bitrateInMBits * 1'000'000L
@@ -122,9 +157,30 @@ void VideoEncoderNVENC::Transmit(
     m_pD3DRender->GetContext()->CopyResource(pInputTexture, pTexture);
 
     NV_ENC_PIC_PARAMS picParams = {};
+    auto& attention = gvl::streaming::alvr::AttentionBridge::Instance();
+    const bool validMap = m_attentionEnabled && attention.Build(targetTimestampNs, float(m_bitrateInMBits));
+    if (validMap) {
+        picParams.qpDeltaMap = const_cast<int8_t*>(attention.Deltas().data());
+        picParams.qpDeltaMapSize = uint32_t(attention.Deltas().size());
+        static gvl::streaming::alvr::EncoderReferenceCapture reference;
+        reference.Capture(pTexture, m_pD3DRender->GetContext(), targetTimestampNs,
+                          attention.CapturedPacket(), attention.ConfiguredGeometry());
+    }
+    static gvl::streaming::alvr::DynamicReferenceCapture dynamicReference;
+    if (m_attentionEnabled)
+        dynamicReference.Capture(pTexture, m_pD3DRender->GetContext(), targetTimestampNs,
+                                 attention.CapturedPacket(), attention.ConfiguredGeometry(), validMap);
     if (insertIDR) {
         Debug("Inserting IDR frame.\n");
         picParams.encodePicFlags = NV_ENC_PIC_FLAG_FORCEIDR;
+    }
+    if (m_codec == ALVR_CODEC_HEVC) {
+        const auto& packet = attention.CapturedPacket();
+        const uint64_t frameId = gvl::streaming::alvr::EncoderFrameTelemetry::Instance().Begin(
+            targetTimestampNs, m_renderWidth, m_renderHeight, validMap,
+            validMap ? packet.producerPid : 0, validMap ? packet.sequence : 0, validMap ? packet.frame : 0,
+            validMap ? attention.MinimumDelta() : 0, validMap ? attention.MaximumDelta() : 0);
+        if (frameId) picParams.inputTimeStamp = frameId;
     }
     m_NvNecoder->EncodeFrame(vPacket, &picParams);
 
@@ -416,5 +472,11 @@ void VideoEncoderNVENC::FillEncodeConfig(
     }
     if (Settings::Instance().m_nvencRcAverageBitrate != -1) {
         encodeConfig.rcParams.averageBitRate = Settings::Instance().m_nvencRcAverageBitrate;
+    }
+    if (m_attentionEnabled) {
+        encodeConfig.rcParams.qpMapMode = NV_ENC_QP_MAP_DELTA;
+        encodeConfig.rcParams.enableAQ = 0;
+        encodeConfig.rcParams.enableTemporalAQ = 0;
+        encodeConfig.encodeCodecConfig.hevcConfig.maxCUSize = NV_ENC_HEVC_CUSIZE_32x32;
     }
 }

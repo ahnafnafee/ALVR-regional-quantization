@@ -237,6 +237,13 @@ fn event_loop(events_receiver: mpsc::Receiver<ServerCoreEvent>) {
                 }
                 ServerCoreEvent::RequestIDR => unsafe { RequestIDR() },
                 ServerCoreEvent::CaptureFrame => unsafe { CaptureFrame() },
+                ServerCoreEvent::RegionalQualityFeedback {
+                    timestamp_ns, network_ms, decoder_queue_ms, lost_total, frame_bytes, frame_interval_ms
+                } => {
+                    #[cfg(windows)]
+                    unsafe { GvlReportRegionalFeedback(timestamp_ns, network_ms, decoder_queue_ms,
+                        lost_total, frame_bytes, frame_interval_ms); }
+                },
                 ServerCoreEvent::GameRenderLatencyFeedback(game_latency) => {
                     if cfg!(target_os = "linux") && game_latency.as_secs_f32() > 0.25 {
                         let now = Instant::now();

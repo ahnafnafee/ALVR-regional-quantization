@@ -1,5 +1,5 @@
 use alvr_common::{SlidingWindowAverage, HEAD_ID};
-use alvr_events::{BitrateDirectives, EventType, GraphStatistics, StatisticsSummary};
+use alvr_events::{BitrateDirectives, EventType, FrameMeasurement, GraphStatistics, StatisticsSummary};
 use alvr_packets::ClientStatistics;
 use std::{
     collections::{HashMap, VecDeque},
@@ -16,6 +16,10 @@ pub struct HistoryFrame {
     frame_composed: Instant,
     frame_encoded: Instant,
     video_packet_bytes: usize,
+    present_reports: u32,
+    composed_reports: u32,
+    encoded_reports: u32,
+    client_reports: u32,
     total_pipeline_latency: Duration,
 }
 
@@ -29,6 +33,7 @@ impl Default for HistoryFrame {
             frame_composed: now,
             frame_encoded: now,
             video_packet_bytes: 0,
+            present_reports: 0, composed_reports: 0, encoded_reports: 0, client_reports: 0,
             total_pipeline_latency: Duration::ZERO,
         }
     }
@@ -58,6 +63,9 @@ pub struct StatisticsManager {
     last_vsync_time: Instant,
     frame_interval: Duration,
     last_throughput_directives: BitrateDirectives,
+    gvl_detail_enabled: bool,
+    gvl_detail_origin: Instant,
+    gvl_detail_sequence: u64,
 }
 
 impl StatisticsManager {
@@ -90,6 +98,9 @@ impl StatisticsManager {
             last_vsync_time: Instant::now(),
             frame_interval: nominal_server_frame_interval,
             last_throughput_directives: BitrateDirectives::default(),
+            gvl_detail_enabled: std::env::var("GVL_ALVR_FRAME_DETAIL").as_deref() == Ok("1"),
+            gvl_detail_origin: Instant::now(),
+            gvl_detail_sequence: 0,
         }
     }
 
@@ -124,6 +135,7 @@ impl StatisticsManager {
             self.last_frame_present_instant = now;
 
             frame.frame_present = now;
+            frame.present_reports = frame.present_reports.saturating_add(1);
         }
     }
 
@@ -134,6 +146,7 @@ impl StatisticsManager {
             .find(|frame| frame.target_timestamp == target_timestamp)
         {
             frame.frame_composed = Instant::now() - offset;
+            frame.composed_reports = frame.composed_reports.saturating_add(1);
         }
     }
 
@@ -156,6 +169,7 @@ impl StatisticsManager {
             frame.frame_encoded = Instant::now();
 
             frame.video_packet_bytes = bytes_count;
+            frame.encoded_reports = frame.encoded_reports.saturating_add(1);
 
             frame
                 .frame_encoded
@@ -193,6 +207,8 @@ impl StatisticsManager {
             .find(|frame| frame.target_timestamp == client_stats.target_timestamp)
         {
             frame.total_pipeline_latency = client_stats.total_pipeline_latency;
+            frame.client_reports = frame.client_reports.saturating_add(1);
+            self.gvl_detail_sequence += 1;
 
             let game_time_latency = frame
                 .frame_present
@@ -278,6 +294,31 @@ impl StatisticsManager {
             // todo: use target timestamp in nanoseconds. the dashboard needs to use the first
             // timestamp as the graph time origin.
             alvr_events::send_event(EventType::GraphStatistics(GraphStatistics {
+                gvl_frame: self.gvl_detail_enabled.then(|| FrameMeasurement {
+                    schema: "cs692.alvr-frame-measurement.v1".into(),
+                    target_timestamp_ns: client_stats.target_timestamp.as_nanos() as u64,
+                    host_sample_sequence: self.gvl_detail_sequence,
+                    host_receipt_elapsed_ns: self.gvl_detail_origin.elapsed().as_nanos() as u64,
+                    encoded_bytes: frame.video_packet_bytes,
+                    present_reports_for_target: frame.present_reports,
+                    composed_reports_for_target: frame.composed_reports,
+                    encoded_reports_for_target: frame.encoded_reports,
+                    client_reports_for_target: frame.client_reports,
+                    frame_match_unambiguous: frame.present_reports == 1 && frame.composed_reports == 1
+                        && frame.encoded_reports == 1 && frame.client_reports == 1,
+                    server_stage_order_valid: frame.tracking_received <= frame.frame_present
+                        && frame.frame_present <= frame.frame_composed && frame.frame_composed <= frame.frame_encoded,
+                    client_input_to_submit_ms: client_stats.total_pipeline_latency
+                        .saturating_sub(client_stats.vsync_queue).as_secs_f32() * 1000.,
+                    runtime_vsync_prediction_ms: client_stats.vsync_queue.as_secs_f32() * 1000.,
+                    runtime_predicted_display_interval_ms: client_stats.frame_interval.as_secs_f32() * 1000.,
+                    network_residual_was_clamped: game_time_latency + server_compositor_latency + encoder_latency
+                        + client_stats.video_decode + client_stats.video_decoder_queue + client_stats.rendering
+                        + client_stats.vsync_queue > frame.total_pipeline_latency,
+                    packets_lost_total: self.packets_lost_total,
+                    physical_motion_to_photon_ms: None,
+                    display_scanout_observed: false,
+                }),
                 total_pipeline_latency_s: client_stats.total_pipeline_latency.as_secs_f32(),
                 game_time_s: game_time_latency.as_secs_f32(),
                 server_compositor_s: server_compositor_latency.as_secs_f32(),
@@ -299,6 +340,12 @@ impl StatisticsManager {
             (Duration::ZERO, Duration::ZERO)
         }
     }
+
+    pub fn regional_frame_bytes(&self, timestamp: Duration) -> Option<usize> {
+        self.history_buffer.iter().find(|f| f.target_timestamp == timestamp)
+            .map(|f| f.video_packet_bytes)
+    }
+    pub fn regional_lost_total(&self) -> usize { self.packets_lost_total }
 
     pub fn motion_to_photon_latency_average(&self) -> Duration {
         self.motion_to_photon_latency_average.get_average()

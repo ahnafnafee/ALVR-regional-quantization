@@ -1,4 +1,7 @@
 #ifdef _WIN32
+#include "platform/win32/AttentionBridge.h"
+#endif
+#ifdef _WIN32
 #include "platform/win32/CEncoder.h"
 #include <windows.h>
 #elif __APPLE__
@@ -128,6 +131,10 @@ public:
     virtual void RunFrame() override {
         vr::VREvent_t event;
         while (vr::VRServerDriverHost()->PollNextEvent(&event, sizeof(vr::VREvent_t))) {
+#ifdef _WIN32
+            if (event.eventType == vr::VREvent_SceneApplicationChanged || event.eventType == vr::VREvent_SceneFocusChanged)
+                gvl::streaming::alvr::AttentionBridge::Instance().SetSceneProcess(event.data.process.pid);
+#endif
             if (event.eventType == vr::VREvent_Input_HapticVibration) {
                 Debug("DriverProvider: Received HapticVibration event");
 

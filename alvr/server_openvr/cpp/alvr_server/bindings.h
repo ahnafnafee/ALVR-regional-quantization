@@ -149,6 +149,8 @@ extern "C" void SetTracking(
     int bodyTrackerMotionCount
 );
 extern "C" void VideoErrorReportReceive();
+extern "C" void GvlReportRegionalFeedback(unsigned long long timestamp, float networkMs,
+    float decoderQueueMs, unsigned long long lost, unsigned long long bytes, float intervalMs);
 extern "C" void RequestDriverResync();
 extern "C" void ShutdownSteamvr();
 

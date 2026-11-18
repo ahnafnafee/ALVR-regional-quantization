@@ -1,3 +1,7 @@
+## Regional quantization research fork
+
+See [the fork guide](tools/regional-quantization/README.md) for the Windows NVENC extension, build steps and application interface.
+
 <p align="center"> <img width="500" src="resources/ALVR-Grey.svg"/> </p>
 
 # ALVR - Air Light VR

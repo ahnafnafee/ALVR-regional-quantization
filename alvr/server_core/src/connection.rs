@@ -1063,7 +1063,21 @@ fn connection_pipeline(
                 if let Some(stats) = &mut *ctx.statistics_manager.write() {
                     let timestamp = client_stats.target_timestamp;
                     let decoder_latency = client_stats.video_decode;
+                    let regional_queue = client_stats.video_decoder_queue.as_secs_f32() * 1000.;
+                    let regional_interval = client_stats.frame_interval.as_secs_f32() * 1000.;
                     let (network_latency, game_latency) = stats.report_statistics(client_stats);
+                    if !network_latency.is_zero() {
+                        if let Some(frame_bytes) = stats.regional_frame_bytes(timestamp) {
+                            ctx.events_sender.send(ServerCoreEvent::RegionalQualityFeedback {
+                                timestamp_ns: timestamp.as_nanos() as u64,
+                                network_ms: network_latency.as_secs_f32() * 1000.,
+                                decoder_queue_ms: regional_queue,
+                                lost_total: stats.regional_lost_total() as u64,
+                                frame_bytes: frame_bytes as u64,
+                                frame_interval_ms: regional_interval,
+                            }).ok();
+                        }
+                    }
 
                     ctx.events_sender
                         .send(ServerCoreEvent::GameRenderLatencyFeedback(game_latency))
