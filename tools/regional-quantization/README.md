@@ -1,8 +1,8 @@
 # Regional quantization for ALVR 20.14.1
 
-This Windows server fork lets an OpenVR application's scene data guide video
+This Windows server fork uses an application's scene data guide video
 quantization. It was developed for the Pedaltopia wireless VR cycling study.
-The application supplies regions separately for each eye. ALVR maps those regions
+The application supplies regions separately for each eye while SteamVR runs the scene. ALVR maps those regions
 through its fixed-foveation transform, computes block-level delta QPs and sends
 the map to NVIDIA NVENC in HEVC mode. This changes how the encoder distributes
 precision within the stream. The headset client uses the standard ALVR protocol.
@@ -49,7 +49,7 @@ The ALVR driver opens the session-local mapping `Local\GVL.StreamingAttention.v1
 and mutex `Local\GVL.StreamingAttention.v1.Lock`. It accepts a fresh packet from
 the active scene process. Publish from inside that process. The bundled
 [C++ publisher](producer/AttentionWorker.h) projects generic geometry given the
-application's stereo matrices. It also handles locking, timestamps and the
+application's column-major stereo view-projection matrices. It also handles locking, timestamps and the
 asynchronous request fence. Compile `producer/AttentionWorker.cpp` and include
 both `producer` and `alvr/server_openvr/cpp/platform/win32`. The
 [worker bridge test](tests/worker_bridge_tests.cpp) demonstrates submitting a
@@ -81,3 +81,16 @@ python tools/regional-quantization/build_tests.py C:/Temp/alvr-regional-tests
 The test runner builds the native map and worker/bridge tests, controller tests,
 and the capture and telemetry tests. It also builds a separate synthetic NVENC
 probe. The probe needs a compatible GPU and does not run as part of the suite.
+
+To smoke-test NVENC with generated images, encode 24 frames with each setting.
+The last argument before the options selects whether to send a regional map.
+
+```powershell
+$probe = 'C:/Temp/alvr-regional-tests/nvenc_probe.exe'
+& $probe C:/Temp/alvr-regional-tests/baseline.hevc 16 0 --study-preset --frames 24
+& $probe C:/Temp/alvr-regional-tests/regional.hevc 16 1 --study-preset --frames 24
+```
+
+The probe reports the actual encoded rate and requested QP range. Its synthetic
+scene exercises the GPU interface. A live stream also needs an application
+publisher and a connected headset.
